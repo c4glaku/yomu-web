@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+public/pdfjs/
 test-results/
 playwright-report/
 .DS_Store
