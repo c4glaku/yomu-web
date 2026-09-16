@@ -1,0 +1,22 @@
+Yomu uses the JMdict and KANJIDIC2 dictionary files.
+Copyright © James William BREEN and the Electronic Dictionary Research and
+Development Group (EDRDG). Used under Creative Commons Attribution-ShareAlike 4.0.
+
+Dictionary data, including this SQLite adaptation, is licensed under CC BY-SA 4.0:
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.edrdg.org/edrdg/licence.html
+
+Sources and documentation:
+https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project
+https://www.edrdg.org/wiki/index.php/KANJIDIC_Project
+https://www.edrdg.org/pub/Nihongo/
+
+Adaptation: Scripts/build_dictionary.py converts JMdict Japanese/English entries
+and KANJIDIC2 Japanese readings and English meanings into indexed SQLite tables.
+Other KANJIDIC2 fields, including SKIP codes, are not included. Word/reading and
+sense restrictions are retained. The app code is separate from this data license.
+Run the documented rebuild procedure before every app release to refresh the data.
+
+Web adaptation: scripts/export-assets.py exports all entries as compressed JSON,
+with common entries and uncommon entries grouped into lookup shards.
+All meanings and readings are preserved. These JSON adaptations remain CC BY-SA 4.0.
