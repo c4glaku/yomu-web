@@ -24,7 +24,8 @@ import type {
   View,
 } from './types'
 import { loadState, saveState } from './lib/storage'
-import { importBook } from './lib/importers'
+import { importBook, importImageCollection } from './lib/importers'
+import { imageType } from './lib/images'
 import { commonDictionary, extractCandidates } from './lib/dictionary'
 import { buildQuiz } from './lib/quiz'
 import Library from './components/Library'
@@ -168,16 +169,24 @@ export default function App() {
     importLock.current = true
     const errors: string[] = []
     let added = 0
+    const images = files.filter((file) => imageType(file.name))
+    const batches = files.filter((file) => !imageType(file.name)).map((file) => [file])
+    if (images.length) batches.push(images)
     try {
-      for (const [i, file] of files.entries()) {
-        setBusy(`Importing ${file.name} (${i + 1}/${files.length})…`)
+      for (const [i, batch] of batches.entries()) {
+        const file = batch[0]
+        const label = batch.length > 1 ? `${batch.length} manga images` : file.name
+        setBusy(`Importing ${label} (${i + 1}/${batches.length})…`)
         try {
-          const book = await importBook(file)
+          const book =
+            batch.length > 1
+              ? await importImageCollection(batch)
+              : await importBook(file, (message) => setBusy(`${file.name}: ${message}`))
           await setState((current) => current && { ...current, books: [...current.books, book] })
           added++
         } catch (error) {
           errors.push(
-            `${file.name}: ${error instanceof Error ? error.message : 'This file could not be imported.'}`,
+            `${label}: ${error instanceof Error ? error.message : 'This file could not be imported.'}`,
           )
         }
       }
@@ -325,7 +334,7 @@ export default function App() {
         ref={inputRef}
         className="sr-only"
         type="file"
-        accept=".pdf,.epub,.txt"
+        accept=".pdf,.epub,.txt,.cbz,.zip,.png,.jpg,.jpeg,.webp"
         multiple
         aria-label="Import book files"
         tabIndex={-1}
@@ -404,7 +413,7 @@ export default function App() {
               Import books
             </button>
             <p className="sidebar-import-note">
-              PDF, EPUB & TXT
+              PDF, EPUB, TXT & manga
               <br />
               <span>Bring a story you love.</span>
             </p>
@@ -528,7 +537,7 @@ export default function App() {
             <div className="drop-overlay">
               <BookOpen size={45} />
               <h2>A new story starts here.</h2>
-              <p>Drop your PDF, EPUB, or TXT books to add them.</p>
+              <p>Drop PDF, EPUB, TXT, CBZ/ZIP, or manga images to add them.</p>
             </div>
           )}
         </div>

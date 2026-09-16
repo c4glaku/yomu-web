@@ -164,7 +164,7 @@ test('settings persist and the layout fits the screen', async ({ page }, testInf
   )
 })
 
-test('extracts selectable and Japanese PDFs and explains scanned PDFs', async ({ page }) => {
+test('extracts selectable and Japanese PDFs and opens scanned pages with OCR', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
@@ -177,7 +177,14 @@ test('extracts selectable and Japanese PDFs and explains scanned PDFs', async ({
   await expect(page.locator('.japanese-text')).toContainText('日本語の本')
   await page.getByRole('button', { name: 'Library', exact: true }).click()
   await page.getByLabel('Import book files').setInputFiles(fixture('scanned.pdf'))
-  await expect(page.getByRole('dialog')).toContainText('no selectable text')
+  await expect(page.locator('.book-card')).toHaveCount(4)
+  await page.getByRole('button', { name: 'Read scanned', exact: true }).click()
+  await page.getByRole('button', { name: 'Let’s read' }).click()
+  await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Select speech bubble' })).toBeEnabled({
+    timeout: 30_000,
+  })
+  await expect(page.locator('.reader-subheader')).toContainText('Manual reading')
   expect(errors).toEqual([])
 })
 

@@ -34,6 +34,24 @@ export default function Settings({
         </div>
       </section>
       <section className="setting-group">
+        <label className="field-label">
+          Text direction
+          <select
+            aria-label="Text direction"
+            value={settings.writingMode}
+            onChange={(event) =>
+              onChange({ writingMode: event.target.value as Preferences['writingMode'] })
+            }
+          >
+            <option value="vertical-rl">Vertical · top to bottom, right to left</option>
+            <option value="horizontal-tb">Horizontal · left to right</option>
+          </select>
+        </label>
+        <p className="small muted">
+          Vertical books turn forward with the left arrow. Manga always reads right to left.
+        </p>
+      </section>
+      <section className="setting-group">
         <label className="range-label" htmlFor="setting-speed">
           <strong>Reading pace</strong>
           <span>{settings.speed} chars/min</span>

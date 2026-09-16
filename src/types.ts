@@ -1,10 +1,28 @@
-export type Page = { text: string; chapter: string }
+export type WritingMode = 'vertical-rl' | 'horizontal-tb'
+export type OcrRegion = {
+  id: string
+  text: string
+  // Fractions of the original page, independent of display size.
+  x: number
+  y: number
+  width: number
+  height: number
+}
+export type Page = {
+  text: string
+  chapter: string
+  image?: string
+  ocr?: { regions: OcrRegion[]; scanned: boolean; manualText?: string }
+}
 export type Highlight = { id: string; page: number; text: string; start: number; end: number }
 export type Book = {
   id: string
   title: string
   author: string
-  format: 'sample' | 'txt' | 'epub' | 'pdf'
+  format: 'sample' | 'txt' | 'epub' | 'pdf' | 'cbz' | 'image'
+  pdfSource?: string
+  illustrated?: boolean
+  readingView?: 'text' | 'original'
   pages: Page[]
   position: number
   readPages: number[]
@@ -43,7 +61,12 @@ export type Session = {
   seconds: number
   quiz?: { correct: number; total: number }
 }
-export type Settings = { theme: 'system' | 'light' | 'dark'; speed: number; fontSize: number }
+export type Settings = {
+  theme: 'system' | 'light' | 'dark'
+  speed: number
+  fontSize: number
+  writingMode: WritingMode
+}
 export type AppState = {
   version: 1
   books: Book[]

@@ -19,6 +19,7 @@ import { sentenceFor } from '../lib/dictionary'
 import { Brand, formatTime, Modal } from './UI'
 import Settings from './Settings'
 import type { ReadingPlan } from './SessionSetup'
+import IllustratedPage from './IllustratedPage'
 
 export type ReadingResult = { pages: number[]; seconds: number; startedAt: string; quiz: boolean }
 
@@ -40,7 +41,7 @@ export default function Reader({
   onFinish: (result: ReadingResult) => void
 }) {
   const [page, setPage] = useState(plan.start)
-  const [running, setRunning] = useState(true)
+  const [running, setRunning] = useState(!book.illustrated && !book.pages[plan.start].image)
   const [seconds, setSeconds] = useState(0)
   const [progress, setProgress] = useState(0)
   const [goalReached, setGoalReached] = useState(false)
@@ -55,7 +56,16 @@ export default function Reader({
   const finished = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLElement>(null)
+  const textScrollRef = useRef<HTMLDivElement>(null)
   const content = book.pages[page]
+  const original =
+    !!content.image ||
+    (!!book.pdfSource &&
+      (book.readingView === 'original' ||
+        (book.readingView !== 'text' && (book.illustrated || !content.text || !!content.ocr))))
+  const vertical = settings.writingMode === 'vertical-rl' && !original
+  const rightToLeft = original || vertical
+  const canPace = !original && !!content.text
 
   useEffect(() => {
     visited.current.add(page)
@@ -63,13 +73,34 @@ export default function Reader({
     setProgress(0)
     setSelection(null)
     setGoalReached(false)
-    scrollRef.current?.scrollTo({ top: 0 })
+    scrollRef.current?.scrollTo({ top: 0, left: 0 })
+    textScrollRef.current?.scrollTo({ top: 0, left: 0 })
     onUpdate({
       position: page,
       openedAt: new Date().toISOString(),
       readPages: [...new Set([...book.readPages, ...visited.current])],
     })
   }, [page])
+
+  useEffect(() => {
+    if (!canPace) setRunning(false)
+    textScrollRef.current?.scrollTo({ top: 0, left: 0 })
+  }, [canPace, vertical])
+
+  useEffect(() => {
+    const viewport = textScrollRef.current
+    if (!vertical || !viewport) return
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return
+      setRunning(false)
+      if (viewport.scrollWidth <= viewport.clientWidth) return
+      event.preventDefault()
+      viewport.scrollLeft +=
+        Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : -event.deltaY
+    }
+    viewport.addEventListener('wheel', wheel, { passive: false })
+    return () => viewport.removeEventListener('wheel', wheel)
+  }, [vertical])
 
   useEffect(() => {
     const pause = () => setRunning(false)
@@ -85,7 +116,7 @@ export default function Reader({
   }, [])
 
   useEffect(() => {
-    if (!running) return
+    if (!running || !canPace) return
     let last = performance.now()
     const count = Math.max(
       10,
@@ -102,8 +133,11 @@ export default function Reader({
         pageProgress.current + (delta * settings.speed) / (count * 60000),
       )
       setProgress(pageProgress.current)
-      const container = scrollRef.current
-      if (container)
+      const container = vertical ? textScrollRef.current : scrollRef.current
+      if (container && vertical)
+        container.scrollLeft =
+          -Math.max(0, container.scrollWidth - container.clientWidth) * pageProgress.current
+      else if (container)
         container.scrollTop =
           Math.max(0, container.scrollHeight - container.clientHeight) * pageProgress.current
       if (pageProgress.current >= 1) {
@@ -117,7 +151,17 @@ export default function Reader({
       }
     }, 250)
     return () => window.clearInterval(timer)
-  }, [running, page, content.text, settings.speed, freeReading, plan.end, book.pages.length])
+  }, [
+    running,
+    page,
+    content.text,
+    settings.speed,
+    freeReading,
+    plan.end,
+    book.pages.length,
+    vertical,
+    canPace,
+  ])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -128,22 +172,27 @@ export default function Reader({
         return
       if (event.code === 'Space') {
         event.preventDefault()
-        if (!goalReached) setRunning((value) => !value)
+        if (!goalReached && canPace) setRunning((value) => !value)
       }
       if (['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
         setRunning(false)
-      if (event.key === 'ArrowRight' && page < book.pages.length - 1) {
+      if (
+        event.key === (rightToLeft ? 'ArrowLeft' : 'ArrowRight') &&
+        page < book.pages.length - 1
+      ) {
+        event.preventDefault()
         setRunning(false)
         setPage(page + 1)
       }
-      if (event.key === 'ArrowLeft' && page > 0) {
+      if (event.key === (rightToLeft ? 'ArrowRight' : 'ArrowLeft') && page > 0) {
+        event.preventDefault()
         setRunning(false)
         setPage(page - 1)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [page, book.pages.length, goalReached])
+  }, [page, book.pages.length, goalReached, rightToLeft, canPace])
 
   const captureSelection = useCallback(() => {
     const selected = window.getSelection()
@@ -198,7 +247,9 @@ export default function Reader({
   ].sort((a, b) => a - b)
 
   return (
-    <div className="reader">
+    <div
+      className={`reader ${rightToLeft ? 'reader-rtl' : ''} ${original ? 'reader-original' : ''}`}
+    >
       <header className="reader-header">
         <button className="back-button" onClick={() => finish(false)}>
           <ArrowLeft size={18} />
@@ -235,7 +286,7 @@ export default function Reader({
         <span lang="ja">{book.title}</span>
         <span>
           <span className={`status-dot ${running ? 'playing' : ''}`} />
-          {running ? 'Reading' : 'Paused'}
+          {original ? 'Manual reading' : running ? 'Reading' : 'Paused'}
           <span className="subheader-time"> · {formatTime(seconds)}</span>
         </span>
         <span>
@@ -253,45 +304,133 @@ export default function Reader({
           if (event.target === event.currentTarget) setRunning(false)
         }}
       >
-        <div className="reading-page">
+        <div className={`reading-page ${vertical ? 'vertical-page' : ''}`}>
           <div className="eyebrow reader-chapter" lang="ja">
             {content.chapter}
           </div>
-          <article
-            ref={textRef}
-            className="japanese-text"
-            lang="ja"
-            style={{ fontSize: settings.fontSize }}
-            onPointerDown={() => setRunning(false)}
-            onMouseUp={captureSelection}
-            onTouchEnd={() => window.setTimeout(captureSelection, 50)}
-            onKeyUp={captureSelection}
-            onSelect={captureSelection}
+          {book.format === 'pdf' && !book.pdfSource && (
+            <p className="small muted ocr-hint">
+              Reimport this PDF to use original pages, OCR, and improved vertical text order. This
+              earlier import saved text only.
+            </p>
+          )}
+          {book.pdfSource && (
+            <div className="reader-view-toggle" role="group" aria-label="Page view">
+              <button
+                className="secondary"
+                aria-pressed={original}
+                onClick={() => {
+                  setRunning(false)
+                  onUpdate({ readingView: 'original' })
+                }}
+              >
+                Original page
+              </button>
+              <button
+                className="secondary"
+                aria-pressed={!original}
+                disabled={!content.text}
+                onClick={() => {
+                  setRunning(false)
+                  onUpdate({ readingView: 'text' })
+                }}
+              >
+                Reflowed text
+              </button>
+            </div>
+          )}
+          {original && (
+            <IllustratedPage
+              key={page}
+              book={book}
+              page={content}
+              index={page}
+              onPause={() => setRunning(false)}
+              onChange={(updated) => {
+                // Keep highlights anchored to their text when OCR is corrected.
+                const highlights = book.highlights.flatMap((highlight) => {
+                  if (highlight.page !== page) return [highlight]
+                  let start = updated.text.indexOf(highlight.text)
+                  for (
+                    let next = start;
+                    next >= 0;
+                    next = updated.text.indexOf(highlight.text, next + 1)
+                  ) {
+                    if (Math.abs(next - highlight.start) < Math.abs(start - highlight.start))
+                      start = next
+                  }
+                  return start < 0
+                    ? []
+                    : [{ ...highlight, start, end: start + highlight.text.length }]
+                })
+                onUpdate({
+                  pages: book.pages.map((item, i) => (i === page ? updated : item)),
+                  highlights,
+                })
+                setSelection(null)
+              }}
+              onRegion={(region) => {
+                const start = content.text.indexOf(region.text)
+                if (start < 0) return
+                setSelection({
+                  text: region.text,
+                  sentence: region.text,
+                  page,
+                  start,
+                  end: start + region.text.length,
+                })
+                textRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+              }}
+            />
+          )}
+          <div
+            ref={textScrollRef}
+            className={`text-viewport ${vertical ? 'vertical' : ''}`}
+            tabIndex={vertical ? 0 : undefined}
+            aria-label={vertical ? 'Vertical Japanese text, scroll left to continue' : undefined}
           >
-            {content.text ? (
-              boundaries
-                .slice(0, -1)
-                .map((start, i) =>
-                  highlights.some(
-                    (highlight) => highlight.start <= start && highlight.end > start,
-                  ) ? (
-                    <mark key={start}>{content.text.slice(start, boundaries[i + 1])}</mark>
-                  ) : (
-                    <span key={start}>{content.text.slice(start, boundaries[i + 1])}</span>
-                  ),
-                )
-            ) : (
-              <span className="muted">
-                This PDF page has no selectable text. Move to the next page to keep reading.
-              </span>
-            )}
-          </article>
+            <article
+              ref={textRef}
+              className="japanese-text"
+              lang="ja"
+              style={{ fontSize: settings.fontSize }}
+              onPointerDown={() => setRunning(false)}
+              onMouseUp={captureSelection}
+              onTouchEnd={() => window.setTimeout(captureSelection, 50)}
+              onKeyUp={captureSelection}
+              onSelect={captureSelection}
+            >
+              {content.text ? (
+                boundaries
+                  .slice(0, -1)
+                  .map((start, i) =>
+                    highlights.some(
+                      (highlight) => highlight.start <= start && highlight.end > start,
+                    ) ? (
+                      <mark key={start}>{content.text.slice(start, boundaries[i + 1])}</mark>
+                    ) : (
+                      <span key={start}>{content.text.slice(start, boundaries[i + 1])}</span>
+                    ),
+                  )
+              ) : (
+                <span className="muted">
+                  {original
+                    ? 'Recognized text will appear here. You can also add or correct page text above.'
+                    : 'This page has no readable text.'}
+                </span>
+              )}
+            </article>
+          </div>
           <div className="page-end">
             <span />
             {String(page + 1).padStart(2, '0')}
             <span />
           </div>
-          <p className="reading-hint">Select a word to look it up or highlight a passage.</p>
+          <p className="reading-hint">
+            {vertical &&
+              'Read top to bottom, then move left to the next column. Scroll or swipe left to continue. '}
+            Select a word to look it up or highlight a passage.
+          </p>
           {goalReached && (
             <div className="goal-complete">
               <Check size={23} />
@@ -359,7 +498,7 @@ export default function Reader({
               setPage(page - 1)
             }}
           >
-            <ChevronLeft size={20} />
+            {rightToLeft ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
           </button>
           <label>
             <span className="sr-only">Go to page</span>
@@ -386,36 +525,42 @@ export default function Reader({
               setPage(page + 1)
             }}
           >
-            <ChevronRight size={20} />
+            {rightToLeft ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
           </button>
         </div>
         <div className="pace-controls">
-          <button
-            className="play-button"
-            aria-label={running ? 'Pause reading' : 'Resume reading'}
-            disabled={goalReached}
-            onClick={() => setRunning(!running)}
-          >
-            {running ? (
-              <Pause size={18} fill="currentColor" />
-            ) : (
-              <Play size={18} fill="currentColor" />
-            )}
-          </button>
-          <label className="pace-label">
-            <span>
-              {settings.speed} <small>chars/min</small>
-            </span>
-            <input
-              aria-label="Reading speed"
-              type="range"
-              min="30"
-              max="600"
-              step="10"
-              value={settings.speed}
-              onChange={(event) => onSettings({ speed: Number(event.target.value) })}
-            />
-          </label>
+          {original ? (
+            <span className="small muted">← Next · Right to left</span>
+          ) : (
+            <>
+              <button
+                className="play-button"
+                aria-label={running ? 'Pause reading' : 'Resume reading'}
+                disabled={goalReached}
+                onClick={() => setRunning(!running)}
+              >
+                {running ? (
+                  <Pause size={18} fill="currentColor" />
+                ) : (
+                  <Play size={18} fill="currentColor" />
+                )}
+              </button>
+              <label className="pace-label">
+                <span>
+                  {settings.speed} <small>chars/min</small>
+                </span>
+                <input
+                  aria-label="Reading speed"
+                  type="range"
+                  min="30"
+                  max="600"
+                  step="10"
+                  value={settings.speed}
+                  onChange={(event) => onSettings({ speed: Number(event.target.value) })}
+                />
+              </label>
+            </>
+          )}
         </div>
         <div className="reader-finish">
           <button

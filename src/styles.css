@@ -1340,6 +1340,8 @@ input[type='range'] {
 }
 .reader-scroll {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
   scroll-behavior: auto;
@@ -1366,6 +1368,162 @@ input[type='range'] {
   overflow-wrap: anywhere;
   user-select: text;
   color: var(--ink);
+  line-break: strict;
+}
+.text-viewport {
+  min-width: 0;
+}
+.reading-page.vertical-page {
+  max-width: 1100px;
+  padding-top: 18px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.vertical-page .reader-chapter {
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+.text-viewport.vertical {
+  flex: 1;
+  height: 0;
+  min-height: 180px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent) var(--line);
+  scrollbar-width: thin;
+  padding-bottom: 12px;
+}
+.vertical .japanese-text {
+  height: 100%;
+  min-width: 100%;
+  width: max-content;
+}
+.vertical-page .page-end {
+  margin: 18px 0 12px;
+}
+.reader-rtl .reader-page-controls {
+  flex-direction: row-reverse;
+}
+.reader-rtl .reader-progress-track {
+  display: flex;
+  justify-content: flex-end;
+}
+.reader-original .reading-page {
+  max-width: 1000px;
+}
+.reader-original .japanese-text {
+  font-size: 20px;
+}
+.reader-view-toggle,
+.ocr-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+  align-items: center;
+}
+.reader-view-toggle [aria-pressed='true'],
+.ocr-controls [aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-pale);
+}
+.ocr-direction {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ocr-direction select {
+  padding: 7px;
+}
+.ocr-hint {
+  margin: 10px 0 18px;
+  line-height: 1.8;
+}
+.ocr-status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 14px 0;
+}
+.ocr-message {
+  font-size: 13px;
+  line-height: 1.8;
+  padding: 12px 0;
+  color: var(--muted);
+}
+.manga-artwork {
+  position: relative;
+  margin: auto;
+  background: white;
+}
+.manga-artwork canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.manga-artwork.selecting {
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.ocr-region {
+  position: absolute;
+  border: 1px solid #c6824055;
+  border-radius: 3px;
+  background: transparent;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+}
+.ocr-region:hover,
+.ocr-region:focus-visible {
+  background: #f1d59455;
+  border-color: #b87935;
+}
+.ocr-region > span {
+  position: absolute;
+  top: -12px;
+  right: -8px;
+  min-width: 19px;
+  padding: 2px;
+  border-radius: 10px;
+  font: 10px/1.5 var(--sans);
+  background: #61432e;
+  color: white;
+}
+.ocr-crop {
+  position: absolute;
+  border: 2px solid #b87935;
+  background: #f1d59444;
+  pointer-events: none;
+}
+.transcript-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 28px 0 15px;
+}
+.transcript-heading h3 {
+  font-size: 14px;
+}
+.transcript-editor {
+  margin-bottom: 24px;
+}
+.transcript-editor textarea {
+  resize: vertical;
+  font: 18px/1.8 var(--japanese);
+  width: 100%;
 }
 .japanese-text mark {
   background: #f1d59480;

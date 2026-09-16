@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
 import { decodeText, importBook, paginate } from './importers'
+import * as storage from './storage'
+import * as images from './images'
 
 function file(name: string, bytes: Uint8Array) {
   const value = new File([], name)
@@ -58,11 +60,48 @@ describe('book imports', () => {
 
   it('rejects empty, unsupported, and oversized files', async () => {
     await expect(importBook(file('empty.txt', new Uint8Array()))).rejects.toThrow(/empty/)
-    await expect(importBook(file('image.jpg', new Uint8Array([1])))).rejects.toThrow(
-      /PDF, EPUB, or TXT/,
+    await expect(importBook(file('comic.cbr', new Uint8Array([1])))).rejects.toThrow(
+      /PDF, EPUB, TXT, CBZ/,
     )
     const tooLarge = new File([], 'large.txt')
     Object.defineProperty(tooLarge, 'size', { value: 76 * 1024 * 1024 })
     await expect(importBook(tooLarge)).rejects.toThrow(/75 MB/)
+  })
+
+  it('naturally orders comic pages and stores artwork apart from book metadata', async () => {
+    const save = vi.spyOn(storage, 'saveAssets').mockResolvedValue()
+    const cover = vi.spyOn(images, 'imageCover').mockResolvedValue('data:image/png;base64,cover')
+    try {
+      const archive = zipSync({
+        'pages/10.png': new Uint8Array([10]),
+        'pages/2.png': new Uint8Array([2]),
+        'pages/1.png': new Uint8Array([1]),
+        '__MACOSX/._1.png': new Uint8Array([3]),
+      })
+      const book = await importBook(file('comic.cbz', archive))
+      expect(book.pages.map((page) => page.chapter)).toEqual(['1.png', '2.png', '10.png'])
+      expect(book.illustrated).toBe(true)
+      expect(book.pages.every((page) => page.image?.startsWith(`${book.id}/`))).toBe(true)
+      expect(save.mock.calls[0][0].size).toBe(3)
+    } finally {
+      save.mockRestore()
+      cover.mockRestore()
+    }
+  })
+
+  it('rejects empty, unsafe, corrupt, and oversized comic archives', async () => {
+    await expect(importBook(file('comic.cbz', new Uint8Array([1])))).rejects.toThrow(/valid ZIP/)
+    await expect(
+      importBook(file('comic.cbz', zipSync({ 'notes.txt': strToU8('hello') }))),
+    ).rejects.toThrow(/no PNG/)
+    await expect(
+      importBook(file('comic.cbz', zipSync({ '../page.png': new Uint8Array([1]) }))),
+    ).rejects.toThrow(/unsafe/)
+    const damaged = zipSync({ '1.png': strToU8('original') }, { level: 0 })
+    damaged[35] ^= 1
+    await expect(importBook(file('comic.cbz', damaged))).rejects.toThrow(/integrity/)
+    await expect(
+      importBook(file('comic.cbz', zipSync({ '1.png': new Uint8Array(17 * 1024 * 1024) }))),
+    ).rejects.toThrow(/size limits/)
   })
 })

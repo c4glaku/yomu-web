@@ -9,18 +9,21 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "postinstall": "node scripts/prepare-pdf-assets.mjs",
+    "postinstall": "node scripts/prepare-pdf-assets.mjs && node scripts/prepare-ocr-assets.mjs",
     "format": "prettier --write src tests scripts/*.mjs *.ts *.json index.html README.md"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "5.3.0",
     "@fontsource/dm-serif-display": "5.3.0",
+    "@tesseract.js-data/jpn": "1.0.0",
+    "@tesseract.js-data/jpn_vert": "1.0.0",
     "fflate": "0.8.3",
     "idb": "8.0.3",
     "lucide-react": "1.46.0",
     "pdfjs-dist": "6.3.289",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

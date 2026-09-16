@@ -1,5 +1,8 @@
 import { strFromU8, unzip, unzipSync } from 'fflate'
 import type { Book, Page } from '../types'
+import { saveAssets } from './storage'
+import { imageCover, imageType } from './images'
+import { openPdf, pdfText } from './pdf'
 
 const MB = 1024 * 1024
 const PAGE_LENGTH = 650
@@ -74,6 +77,7 @@ function crc32(bytes: Uint8Array) {
 }
 
 async function readArchive(bytes: Uint8Array) {
+  if (bytes.length < 22) throw new Error('This file is not a valid ZIP archive.')
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let end = bytes.length - 22
   while (end >= Math.max(0, bytes.length - 65557) && view.getUint32(end, true) !== 0x06054b50) end--
@@ -139,6 +143,12 @@ function extractChapter(text: string) {
   // Validate XHTML, then extract only text from a detached document. Imported
   // markup is never attached to the page or rendered as HTML.
   const doc = xml(text)
+  const images = [...elements(doc, 'img'), ...elements(doc, 'image')]
+    .map(
+      (image) =>
+        image.getAttribute('src') || image.getAttribute('href') || image.getAttribute('xlink:href'),
+    )
+    .filter((href): href is string => !!href)
   for (const element of doc.querySelectorAll('rt, rp, script, style, head, svg, nav'))
     element.remove()
   const heading = doc.querySelector('h1, h2, h3')?.textContent?.trim()
@@ -150,10 +160,11 @@ function extractChapter(text: string) {
       .replace(/[ \t]+/g, ' ')
       .replace(/\n\s*\n(?:\s*\n)+/g, '\n\n'),
     heading,
+    images,
   }
 }
 
-async function importEpub(bytes: Uint8Array) {
+async function importEpub(bytes: Uint8Array, addAsset: (blob: Blob) => string) {
   const files = await readArchive(bytes)
   const get = (path: string) => {
     if (!files[path]) throw new Error(`The EPUB is missing a required file: ${path}`)
@@ -181,7 +192,22 @@ async function importEpub(bytes: Uint8Array) {
     if (encrypted.has(path))
       throw new Error('This EPUB has encrypted chapters. Import a DRM-free edition.')
     const chapter = extractChapter(get(path))
-    pages.push(...paginate(chapter.text, chapter.heading || `Chapter ${pages.length + 1}`))
+    const chapterName = chapter.heading || `Chapter ${pages.length + 1}`
+    pages.push(...paginate(chapter.text, chapterName))
+    for (const href of chapter.images) {
+      const imagePath = archivePath(path, href)
+      const type = imageType(imagePath)
+      if (!type) continue
+      if (encrypted.has(imagePath))
+        throw new Error('This EPUB has encrypted images. Import a DRM-free edition.')
+      const data = files[imagePath]
+      if (!data) throw new Error(`The EPUB is missing an image: ${imagePath}`)
+      pages.push({
+        text: '',
+        chapter: chapterName,
+        image: addAsset(new Blob([new Uint8Array(data)], { type })),
+      })
+    }
   }
   const coverId = elements(pkg, 'meta')
     .find((meta) => meta.getAttribute('name') === 'cover')
@@ -204,54 +230,92 @@ async function importEpub(bytes: Uint8Array) {
       })
     }
   }
-  return { title: firstText(pkg, 'title'), author: firstText(pkg, 'creator'), pages, cover }
+  return {
+    title: firstText(pkg, 'title'),
+    author: firstText(pkg, 'creator'),
+    pages,
+    cover,
+    illustrated: pages.length > 0 && pages.every((page) => !!page.image),
+  }
 }
 
-async function importPdf(bytes: Uint8Array) {
-  const pdfjs = await import('pdfjs-dist')
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url,
-  ).href
-  const task = pdfjs.getDocument({
-    data: bytes,
-    cMapUrl: `${import.meta.env.BASE_URL}pdfjs/cmaps/`,
-    cMapPacked: true,
-    standardFontDataUrl: `${import.meta.env.BASE_URL}pdfjs/standard_fonts/`,
-    wasmUrl: `${import.meta.env.BASE_URL}pdfjs/wasm/`,
-  })
+async function importPdf(bytes: Uint8Array, onProgress?: (message: string) => void) {
+  const task = await openPdf(bytes)
   try {
     const document = await task.promise
     if (document.numPages > 5000)
       throw new Error('PDFs with more than 5,000 pages are not supported.')
     const pages: Page[] = []
     for (let i = 1; i <= document.numPages; i++) {
+      onProgress?.(`Reading PDF page ${i} of ${document.numPages}…`)
       const page = await document.getPage(i)
       const content = await page.getTextContent()
-      const text = content.items
-        .map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : '') : ''))
-        .join('')
+      const text = pdfText(
+        content.items.filter((item) => 'str' in item),
+        content.styles,
+      )
       pages.push({ text: clean(text), chapter: `PDF · Page ${i}` })
       page.cleanup()
     }
-    if (!pages.some((page) => page.text))
-      throw new Error('This PDF has no selectable text. Scanned pages need OCR before importing.')
-    return { pages }
+    return { pages, illustrated: pages.filter((page) => !page.text).length > pages.length / 2 }
   } finally {
     await task.destroy()
   }
 }
 
-export async function importBook(file: File): Promise<Book> {
+export async function importBook(
+  file: File,
+  onProgress?: (message: string) => void,
+): Promise<Book> {
   if (file.size > 75 * MB) throw new Error('Choose a file smaller than 75 MB.')
   if (!file.size) throw new Error('This file is empty.')
-  const format = file.name.split('.').pop()?.toLowerCase()
-  if (format !== 'txt' && format !== 'epub' && format !== 'pdf')
-    throw new Error('Choose a PDF, EPUB, or TXT file.')
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const type = imageType(file.name)
+  const format = type ? 'image' : extension === 'zip' ? 'cbz' : extension
+  if (
+    format !== 'txt' &&
+    format !== 'epub' &&
+    format !== 'pdf' &&
+    format !== 'cbz' &&
+    format !== 'image'
+  )
+    throw new Error('Choose a PDF, EPUB, TXT, CBZ/ZIP, PNG, JPEG, or WebP file.')
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const base: Book = {
+  const base = newBook(file.name.replace(/\.[^.]+$/, ''), format)
+  const assets = new Map<string, Blob>()
+  const addAsset = (blob: Blob) => {
+    const id = `${base.id}/${assets.size}`
+    assets.set(id, blob)
+    return id
+  }
+  if (format === 'pdf')
+    base.pdfSource = addAsset(new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }))
+  const content: Partial<Book> & { pages: Page[] } =
+    format === 'epub'
+      ? await importEpub(bytes, addAsset)
+      : format === 'pdf'
+        ? await importPdf(bytes, onProgress)
+        : format === 'cbz'
+          ? await importComic(bytes, addAsset)
+          : format === 'image'
+            ? await importImage(new Blob([new Uint8Array(bytes)], { type }), addAsset)
+            : { pages: paginate(decodeText(bytes)) }
+  const book = {
+    ...base,
+    ...content,
+    title: content.title || base.title,
+    author: content.author || base.author,
+  }
+  if (!book.pages.length)
+    throw new Error('This book does not contain any readable text or supported images.')
+  await saveAssets(assets)
+  return book
+}
+
+function newBook(title: string, format: Book['format']): Book {
+  return {
     id: crypto.randomUUID(),
-    title: file.name.replace(/\.[^.]+$/, ''),
+    title,
     author: 'Your collection',
     format,
     pages: [],
@@ -262,18 +326,64 @@ export async function importBook(file: File): Promise<Book> {
     tone: Math.floor(Math.random() * 4),
     highlights: [],
   }
-  const content: { pages: Page[]; title?: string; author?: string; cover?: string } =
-    format === 'epub'
-      ? await importEpub(bytes)
-      : format === 'pdf'
-        ? await importPdf(bytes)
-        : { pages: paginate(decodeText(bytes)) }
-  const book = {
-    ...base,
-    ...content,
-    title: content.title || base.title,
-    author: content.author || base.author,
+}
+
+export async function importImageCollection(files: File[]): Promise<Book> {
+  if (!files.length || files.length >= 5000)
+    throw new Error('Choose between 1 and 4,999 manga page images.')
+  if (files.some((file) => !imageType(file.name) || !file.size || file.size > 75 * MB))
+    throw new Error('Choose non-empty PNG, JPEG, or WebP files smaller than 75 MB each.')
+  if (files.reduce((size, file) => size + file.size, 0) > 200 * MB)
+    throw new Error('Choose manga images totaling less than 200 MB.')
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
+  const title = sorted[0].name.replace(/\.[^.]+$/, '').replace(/[\s_-]*\d+$/, '') || 'Manga'
+  const book = newBook(`${title} · ${sorted.length} pages`, 'image')
+  const assets = new Map<string, Blob>()
+  for (const [index, file] of sorted.entries()) {
+    const key = `${book.id}/${index}`
+    assets.set(key, file)
+    book.pages.push({ text: '', chapter: file.name, image: key })
   }
-  if (!book.pages.length) throw new Error('This book does not contain any readable text.')
+  book.cover = await imageCover(sorted[0])
+  book.illustrated = true
+  await saveAssets(assets)
   return book
+}
+
+async function importImage(blob: Blob, addAsset: (blob: Blob) => string) {
+  return {
+    pages: [{ text: '', chapter: 'Manga · Page 1', image: addAsset(blob) }],
+    cover: await imageCover(blob),
+    illustrated: true,
+  }
+}
+
+async function importComic(bytes: Uint8Array, addAsset: (blob: Blob) => string) {
+  const files = await readArchive(bytes).catch((error) => {
+    throw new Error(
+      error instanceof Error
+        ? error.message.replaceAll('EPUB', 'comic')
+        : 'This comic archive could not be read.',
+    )
+  })
+  const names = Object.keys(files)
+    .filter(
+      (name) =>
+        imageType(name) &&
+        !name.split('/').some((part) => part.startsWith('.') || part === '__MACOSX'),
+    )
+    .sort(
+      (a, b) =>
+        a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' }) ||
+        a.localeCompare(b, 'en'),
+    )
+  if (!names.length) throw new Error('This comic archive contains no PNG, JPEG, or WebP pages.')
+  let cover: string | undefined
+  const pages: Page[] = []
+  for (const name of names) {
+    const blob = new Blob([new Uint8Array(files[name])], { type: imageType(name) })
+    if (!cover) cover = await imageCover(blob)
+    pages.push({ text: '', chapter: name.split('/').pop()!, image: addAsset(blob) })
+  }
+  return { pages, cover, illustrated: true }
 }
