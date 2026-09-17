@@ -169,6 +169,7 @@ export default function App() {
     importLock.current = true
     const errors: string[] = []
     let added = 0
+    let imageOnlyPages = false
     const images = files.filter((file) => imageType(file.name))
     const batches = files.filter((file) => !imageType(file.name)).map((file) => [file])
     if (images.length) batches.push(images)
@@ -183,6 +184,7 @@ export default function App() {
               ? await importImageCollection(batch)
               : await importBook(file, (message) => setBusy(`${file.name}: ${message}`))
           await setState((current) => current && { ...current, books: [...current.books, book] })
+          imageOnlyPages ||= book.pages.some((page) => !page.text.trim())
           added++
         } catch (error) {
           errors.push(
@@ -198,7 +200,12 @@ export default function App() {
     setImportErrors(errors)
     if (added) {
       setView('library')
-      setNotice(`${added} ${added === 1 ? 'book added' : 'books added'} to your library.`)
+      setNotice(
+        `${added} ${added === 1 ? 'book added' : 'books added'} to your library.` +
+          (imageOnlyPages
+            ? ' Pages without selectable text are available for reading, but cannot be highlighted or used for quizzes.'
+            : ''),
+      )
     }
   }
 
@@ -235,7 +242,7 @@ export default function App() {
     }
     setState((current) => current && { ...current, sessions: [...current.sessions, session] })
     setReader(null)
-    if (!result.quiz) {
+    if (!result.quiz || !result.pages.some((index) => book.pages[index].text.trim())) {
       setNotice('Reading session saved. A little progress, every day.')
       return
     }

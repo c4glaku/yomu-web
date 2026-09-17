@@ -58,14 +58,13 @@ export default function Reader({
   const textRef = useRef<HTMLElement>(null)
   const textScrollRef = useRef<HTMLDivElement>(null)
   const content = book.pages[page]
+  const hasText = !!content.text.trim()
   const original =
-    !!content.image ||
-    (!!book.pdfSource &&
-      (book.readingView === 'original' ||
-        (book.readingView !== 'text' && (book.illustrated || !content.text || !!content.ocr))))
+    !!content.image || (!!book.pdfSource && (!hasText || book.readingView === 'original'))
   const vertical = settings.writingMode === 'vertical-rl' && !original
   const rightToLeft = original || vertical
   const canPace = !original && !!content.text
+  const canQuiz = hasText || [...visited.current].some((index) => book.pages[index].text.trim())
 
   useEffect(() => {
     visited.current.add(page)
@@ -260,6 +259,7 @@ export default function Reader({
           <button
             className="icon-button"
             aria-label="View highlights"
+            disabled={!hasText && !book.highlights.length}
             onClick={() => {
               setRunning(false)
               setShowHighlights(true)
@@ -309,9 +309,9 @@ export default function Reader({
             {content.chapter}
           </div>
           {book.format === 'pdf' && !book.pdfSource && (
-            <p className="small muted ocr-hint">
-              Reimport this PDF to use original pages, OCR, and improved vertical text order. This
-              earlier import saved text only.
+            <p className="small muted page-note">
+              Reimport this PDF to use original pages and improved vertical text order. This earlier
+              import saved text only.
             </p>
           )}
           {book.pdfSource && (
@@ -329,7 +329,7 @@ export default function Reader({
               <button
                 className="secondary"
                 aria-pressed={!original}
-                disabled={!content.text}
+                disabled={!hasText}
                 onClick={() => {
                   setRunning(false)
                   onUpdate({ readingView: 'text' })
@@ -339,98 +339,61 @@ export default function Reader({
               </button>
             </div>
           )}
-          {original && (
-            <IllustratedPage
-              key={page}
-              book={book}
-              page={content}
-              index={page}
-              onPause={() => setRunning(false)}
-              onChange={(updated) => {
-                // Keep highlights anchored to their text when OCR is corrected.
-                const highlights = book.highlights.flatMap((highlight) => {
-                  if (highlight.page !== page) return [highlight]
-                  let start = updated.text.indexOf(highlight.text)
-                  for (
-                    let next = start;
-                    next >= 0;
-                    next = updated.text.indexOf(highlight.text, next + 1)
-                  ) {
-                    if (Math.abs(next - highlight.start) < Math.abs(start - highlight.start))
-                      start = next
-                  }
-                  return start < 0
-                    ? []
-                    : [{ ...highlight, start, end: start + highlight.text.length }]
-                })
-                onUpdate({
-                  pages: book.pages.map((item, i) => (i === page ? updated : item)),
-                  highlights,
-                })
-                setSelection(null)
-              }}
-              onRegion={(region) => {
-                const start = content.text.indexOf(region.text)
-                if (start < 0) return
-                setSelection({
-                  text: region.text,
-                  sentence: region.text,
-                  page,
-                  start,
-                  end: start + region.text.length,
-                })
-                textRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-              }}
-            />
+          {!hasText && (
+            <p className="page-note" role="note">
+              This page has no selectable text. You can read the original image, but cannot select
+              or highlight words or be quizzed on this page.
+            </p>
           )}
-          <div
-            ref={textScrollRef}
-            className={`text-viewport ${vertical ? 'vertical' : ''}`}
-            tabIndex={vertical ? 0 : undefined}
-            aria-label={vertical ? 'Vertical Japanese text, scroll left to continue' : undefined}
-          >
-            <article
-              ref={textRef}
-              className="japanese-text"
-              lang="ja"
-              style={{ fontSize: settings.fontSize }}
-              onPointerDown={() => setRunning(false)}
-              onMouseUp={captureSelection}
-              onTouchEnd={() => window.setTimeout(captureSelection, 50)}
-              onKeyUp={captureSelection}
-              onSelect={captureSelection}
+          {original && <IllustratedPage key={page} book={book} page={content} index={page} />}
+          {hasText && (
+            <div
+              ref={textScrollRef}
+              className={`text-viewport ${vertical ? 'vertical' : ''}`}
+              tabIndex={vertical ? 0 : undefined}
+              aria-label={vertical ? 'Vertical Japanese text, scroll left to continue' : undefined}
             >
-              {content.text ? (
-                boundaries
-                  .slice(0, -1)
-                  .map((start, i) =>
-                    highlights.some(
-                      (highlight) => highlight.start <= start && highlight.end > start,
-                    ) ? (
-                      <mark key={start}>{content.text.slice(start, boundaries[i + 1])}</mark>
-                    ) : (
-                      <span key={start}>{content.text.slice(start, boundaries[i + 1])}</span>
-                    ),
-                  )
-              ) : (
-                <span className="muted">
-                  {original
-                    ? 'Recognized text will appear here. You can also add or correct page text above.'
-                    : 'This page has no readable text.'}
-                </span>
-              )}
-            </article>
-          </div>
+              <article
+                ref={textRef}
+                className="japanese-text"
+                lang="ja"
+                style={{ fontSize: settings.fontSize }}
+                onPointerDown={() => setRunning(false)}
+                onMouseUp={captureSelection}
+                onTouchEnd={() => window.setTimeout(captureSelection, 50)}
+                onKeyUp={captureSelection}
+                onSelect={captureSelection}
+              >
+                {content.text ? (
+                  boundaries
+                    .slice(0, -1)
+                    .map((start, i) =>
+                      highlights.some(
+                        (highlight) => highlight.start <= start && highlight.end > start,
+                      ) ? (
+                        <mark key={start}>{content.text.slice(start, boundaries[i + 1])}</mark>
+                      ) : (
+                        <span key={start}>{content.text.slice(start, boundaries[i + 1])}</span>
+                      ),
+                    )
+                ) : (
+                  <span className="muted">This page has no readable text.</span>
+                )}
+              </article>
+            </div>
+          )}
           <div className="page-end">
             <span />
             {String(page + 1).padStart(2, '0')}
             <span />
           </div>
-          <p className="reading-hint">
-            {vertical &&
-              'Read top to bottom, then move left to the next column. Scroll or swipe left to continue. '}
-            Select a word to look it up or highlight a passage.
-          </p>
+          {hasText && (
+            <p className="reading-hint">
+              {vertical &&
+                'Read top to bottom, then move left to the next column. Scroll or swipe left to continue. '}
+              Select a word to look it up or highlight a passage.
+            </p>
+          )}
           {goalReached && (
             <div className="goal-complete">
               <Check size={23} />
@@ -529,7 +492,7 @@ export default function Reader({
           </button>
         </div>
         <div className="pace-controls">
-          {original ? (
+          {!canPace ? (
             <span className="small muted">← Next · Right to left</span>
           ) : (
             <>
@@ -573,9 +536,9 @@ export default function Reader({
           >
             <Search size={18} />
           </button>
-          <button className="secondary" onClick={() => finish(true)}>
+          <button className="secondary" onClick={() => finish(canQuiz)}>
             <Flag size={15} />
-            <span>Finish & quiz</span>
+            <span>{canQuiz ? 'Finish & quiz' : 'Finish reading'}</span>
           </button>
         </div>
       </footer>

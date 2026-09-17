@@ -40,6 +40,15 @@ export default function SessionSetup({
           </p>
         </div>
       </div>
+      {book.pages.some((page) => !page.text.trim()) && (
+        <p className="page-note">
+          {book.pages.every((page) => !page.text.trim())
+            ? 'This book has no selectable text.'
+            : 'Some pages have no selectable text.'}{' '}
+          You can read these pages as images, but cannot select or highlight their words or be
+          quizzed on them. Original pages use manual page turns.
+        </p>
+      )}
       <label className="field-label">
         Start at
         <select value={start} onChange={(event) => setStart(Number(event.target.value))}>

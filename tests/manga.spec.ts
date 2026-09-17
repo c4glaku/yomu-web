@@ -43,35 +43,15 @@ async function readBook(page: Page, title: string) {
   await page.getByRole('button', { name: 'Let’s read' }).click()
 }
 
-async function selectWord(page: Page, word: string) {
-  await page.locator('.japanese-text').evaluate((element, word) => {
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
-    let node: Node | null
-    while ((node = walker.nextNode())) {
-      const offset = node.textContent?.indexOf(word) ?? -1
-      if (offset < 0) continue
-      const range = document.createRange()
-      range.setStart(node, offset)
-      range.setEnd(node, offset + word.length)
-      window.getSelection()?.removeAllRanges()
-      window.getSelection()?.addRange(range)
-      element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-      break
-    }
-  }, word)
-}
-
 test('vertical columns, scrolling, navigation, and horizontal preference work', async ({
   page,
 }, testInfo) => {
   await page.goto('/')
-  await page
-    .getByLabel('Import book files')
-    .setInputFiles({
-      name: 'vertical.txt',
-      mimeType: 'text/plain',
-      buffer: Buffer.from('日本語の本を読みます。'.repeat(140)),
-    })
+  await page.getByLabel('Import book files').setInputFiles({
+    name: 'vertical.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('日本語の本を読みます。'.repeat(140)),
+  })
   await readBook(page, 'vertical')
   const viewport = page.locator('.text-viewport')
   await expect(page.locator('.japanese-text')).toHaveCSS('writing-mode', 'vertical-rl')
@@ -111,16 +91,14 @@ test('vertical columns, scrolling, navigation, and horizontal preference work', 
   await expect(page.locator('.japanese-text')).toHaveCSS('writing-mode', 'horizontal-tb')
 })
 
-test('real Japanese manga OCR supports lookup, correction, persistence, and right-to-left pages', async ({
+test('image-only comics retain artwork, page order, and reading progress without OCR', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(120_000)
   const errors: string[] = []
-  const external: string[] = []
+  const ocrRequests: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('request', (request) => {
-    if (/^https?:/.test(request.url()) && !request.url().startsWith('http://127.0.0.1:5173/'))
-      external.push(request.url())
+    if (/ocr|tesseract|traineddata/i.test(request.url())) ocrRequests.push(request.url())
   })
   await page.goto('/')
   const image = await mangaImage(page)
@@ -128,82 +106,47 @@ test('real Japanese manga OCR supports lookup, correction, persistence, and righ
   await page
     .getByLabel('Import book files')
     .setInputFiles({ name: 'manga.cbz', mimeType: 'application/zip', buffer: Buffer.from(archive) })
-  await readBook(page, 'manga')
+  await page.getByRole('button', { name: 'Read manga', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('This book has no selectable text')
+  await expect(page.getByRole('dialog')).toContainText('cannot select or highlight')
+  await page.getByRole('button', { name: 'Let’s read' }).click()
   await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
-  await expect(page.locator('.japanese-text')).toContainText('学校', { timeout: 60_000 })
-  await expect(page.locator('.japanese-text')).toContainText('友達')
-  await expect(page.locator('.ocr-region').first()).toBeVisible()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('manga-ocr.png'), fullPage: true })
-  await selectWord(page, '学校')
-  await page.getByRole('button', { name: 'Look up', exact: true }).click()
-  const lookup = page.getByRole('dialog', { name: 'A word to take with you' })
-  await expect(lookup.locator('.dictionary-heading h3')).toHaveText('学校')
-  await lookup.getByRole('button', { name: 'Save word & sentence' }).click()
-  await expect(lookup.getByRole('button', { name: 'Saved to your words' })).toBeDisabled()
-  await lookup.getByRole('button', { name: 'Close dialog' }).click()
-  await page.getByRole('button', { name: 'Select speech bubble' }).click()
-  const box = (await page.locator('.manga-artwork').boundingBox())!
-  await page.mouse.move(box.x + box.width * 0.59, box.y + box.height * 0.09)
-  await page.mouse.down()
-  await page.mouse.move(box.x + box.width * 0.88, box.y + box.height * 0.68, { steps: 8 })
-  await page.mouse.up()
-  await expect(page.getByRole('button', { name: 'Select speech bubble' })).toBeEnabled({
-    timeout: 45_000,
-  })
-  await expect(page.getByRole('button', { name: 'Select speech bubble' })).toHaveAttribute(
-    'aria-pressed',
-    'false',
+  await expect(page.getByRole('note')).toContainText(
+    'cannot select or highlight words or be quizzed',
   )
-  await expect(page.locator('.japanese-text')).toContainText('学校')
-  await page.getByRole('button', { name: 'Edit page text' }).click()
-  await page.getByLabel('Correct the recognized text').fill('今日は学校へ行く。友達と本を読む。')
-  await page.getByRole('button', { name: 'Save page text' }).click()
-  await expect(page.locator('.japanese-text')).toHaveText('今日は学校へ行く。友達と本を読む。')
-  await selectWord(page, '友達')
-  await page.getByRole('button', { name: 'Highlight', exact: true }).click()
-  await expect(page.locator('.japanese-text mark')).toHaveText('友達')
-  await page.locator('.japanese-text').click()
+  await expect(page.locator('.japanese-text')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Scan page', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Finish & quiz', exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('image-reader.png'), fullPage: true })
+  await page.locator('.page-artwork').click()
   await page.keyboard.press('ArrowLeft')
   await expect(page.getByLabel('Go to page')).toHaveValue('1')
   await expect(page.locator('.reader-chapter')).toHaveText('2.png')
   await page.keyboard.press('ArrowLeft')
   await expect(page.locator('.reader-chapter')).toHaveText('10.png')
-  await page.getByRole('button', { name: 'Library', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish reading', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Your library' })).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.reload()
   await page.getByRole('button', { name: 'Read manga', exact: true }).click()
   await expect(page.getByLabel('Start at')).toHaveValue('2')
-  await page.getByLabel('Start at').selectOption('0')
   await page.getByRole('button', { name: 'Let’s read' }).click()
-  await expect(page.locator('.japanese-text mark')).toHaveText('友達')
-  await expect(page.getByRole('button', { name: 'Scan page again' })).toBeEnabled()
-  await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
-  await page.getByRole('button', { name: 'Finish & quiz', exact: true }).click()
-  await expect(
-    page.getByRole('dialog', { name: 'Let those words sink in' }).locator('.quiz-word'),
-  ).toHaveText('学校')
-  expect(external).toEqual([])
+  await expect(page.getByRole('img', { name: 'Artwork for page 3' })).toBeVisible()
+  expect(ocrRequests).toEqual([])
   expect(errors).toEqual([])
 })
 
-test('OCR failures can be retried without losing the manga, and deleting it removes its images', async ({
-  page,
-}) => {
-  test.setTimeout(90_000)
+test('deleting an illustrated book removes its saved artwork', async ({ page }) => {
   await page.goto('/')
   const image = await mangaImage(page)
-  await page.route('**/ocr/worker.min.js', (route) => route.abort())
   await page
     .getByLabel('Import book files')
-    .setInputFiles({ name: 'retry.png', mimeType: 'image/png', buffer: image })
-  await readBook(page, 'retry')
-  await expect(page.locator('.ocr-message')).toContainText(/OCR failed|could not/)
+    .setInputFiles({ name: 'artwork.png', mimeType: 'image/png', buffer: image })
+  await readBook(page, 'artwork')
   await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
-  await page.unroute('**/ocr/worker.min.js')
-  await page.getByRole('button', { name: 'Scan page', exact: true }).click()
-  await expect(page.locator('.japanese-text')).toContainText('学校', { timeout: 60_000 })
   await page.getByRole('button', { name: 'Library', exact: true }).click()
-  await page.getByRole('button', { name: 'Options for retry', exact: true }).click()
+  await page.getByRole('button', { name: 'Options for artwork', exact: true }).click()
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Remove book', exact: true }).click()
   await expect(page.locator('.book-card')).toHaveCount(1)
@@ -237,13 +180,11 @@ test('image-only EPUB pages follow the spine and retain their artwork', async ({
     ),
     '1.png': image,
   })
-  await page
-    .getByLabel('Import book files')
-    .setInputFiles({
-      name: 'image.epub',
-      mimeType: 'application/epub+zip',
-      buffer: Buffer.from(archive),
-    })
+  await page.getByLabel('Import book files').setInputFiles({
+    name: 'image.epub',
+    mimeType: 'application/epub+zip',
+    buffer: Buffer.from(archive),
+  })
   await readBook(page, 'Image EPUB')
   await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
   await page.getByRole('button', { name: 'Library', exact: true }).click()
@@ -252,15 +193,13 @@ test('image-only EPUB pages follow the spine and retain their artwork', async ({
 test('imports several loose page images as one naturally ordered manga', async ({ page }) => {
   await page.goto('/')
   const image = await mangaImage(page)
-  await page
-    .getByLabel('Import book files')
-    .setInputFiles(
-      ['page10.png', 'page2.png', 'page1.png'].map((name) => ({
-        name,
-        mimeType: 'image/png',
-        buffer: image,
-      })),
-    )
+  await page.getByLabel('Import book files').setInputFiles(
+    ['page10.png', 'page2.png', 'page1.png'].map((name) => ({
+      name,
+      mimeType: 'image/png',
+      buffer: image,
+    })),
+  )
   await expect(page.locator('.book-card')).toHaveCount(2)
   await readBook(page, 'page · 3 pages')
   await expect(page.locator('.reader-chapter')).toHaveText('page1.png')
@@ -269,10 +208,7 @@ test('imports several loose page images as one naturally ordered manga', async (
   await page.getByRole('button', { name: 'Library', exact: true }).click()
 })
 
-test('recognizes Japanese in a scanned PDF while preserving its original page', async ({
-  page,
-}) => {
-  test.setTimeout(90_000)
+test('imports a scanned PDF for image-only reading and keeps it after reload', async ({ page }) => {
   await page.goto('/')
   const image = await mangaImage(page)
   const printPage = await page.context().newPage()
@@ -286,12 +222,48 @@ test('recognizes Japanese in a scanned PDF while preserving its original page', 
     .setInputFiles({ name: 'Scanned manga.pdf', mimeType: 'application/pdf', buffer: pdf })
   await readBook(page, 'Scanned manga')
   await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
-  await expect(page.locator('.japanese-text')).toContainText('学校', { timeout: 60_000 })
-  await page.getByRole('button', { name: 'Reflowed text', exact: true }).click()
-  await expect(page.locator('.japanese-text')).toHaveCSS('writing-mode', 'vertical-rl')
-  await expect(page.locator('.japanese-text')).toContainText('学校')
-  await page.getByRole('button', { name: 'Original page', exact: true }).click()
+  await expect(page.getByRole('note')).toContainText('This page has no selectable text')
+  await expect(page.getByRole('button', { name: 'Reflowed text', exact: true })).toBeDisabled()
+  await expect(page.locator('.japanese-text')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'View highlights' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Finish reading', exact: true }).click()
+  await page.reload()
+  await readBook(page, 'Scanned manga')
   await expect(page.getByRole('img', { name: 'Artwork for page 1' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reflowed text', exact: true })).toBeDisabled()
+})
+
+test('mixed PDFs show scanned pages even after selecting reflowed text', async ({ page }) => {
+  await page.goto('/')
+  const image = await mangaImage(page)
+  const printPage = await page.context().newPage()
+  await printPage.setContent(
+    `<style>body{margin:0}section{height:900px;break-after:page}img{width:700px;height:900px}</style>
+    <section>Japanese novel: readable text.</section><img src="data:image/png;base64,${image.toString('base64')}">`,
+  )
+  const pdf = await printPage.pdf({ width: '700px', height: '900px' })
+  await printPage.close()
+  await page.getByLabel('Import book files').setInputFiles({
+    name: 'Mixed.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdf,
+  })
+  await page.getByRole('button', { name: 'Read Mixed', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('Some pages have no selectable text')
+  await page.getByRole('button', { name: 'Let’s read' }).click()
+  await page.getByRole('button', { name: 'Reflowed text', exact: true }).click()
+  await expect(page.locator('.japanese-text')).toContainText('Japanese novel')
+  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await expect(page.getByRole('img', { name: 'Artwork for page 2' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reflowed text', exact: true })).toBeDisabled()
+  await expect(page.getByRole('note')).toContainText('no selectable text')
+  await expect(page.locator('.japanese-text')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Library', exact: true }).click()
+  await readBook(page, 'Mixed')
+  await expect(page.getByRole('button', { name: 'Finish reading', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await expect(page.locator('.japanese-text')).toContainText('Japanese novel')
+  await expect(page.getByRole('button', { name: 'Finish & quiz', exact: true })).toBeVisible()
 })
 
 test('upgrades an existing library without losing its books, words, or progress', async ({
