@@ -1,16 +1,21 @@
 import { ArrowRight, BookOpen } from 'lucide-react'
 import { useState } from 'react'
-import type { Book } from '../types'
+import type { Book, Settings } from '../types'
 import { Modal } from './UI'
+import ReadingDirection from './ReadingDirection'
 
 export type ReadingPlan = { start: number; end: number | null }
 
 export default function SessionSetup({
   book,
+  settings,
+  onSettings,
   onStart,
   onClose,
 }: {
   book: Book
+  settings: Settings
+  onSettings: (patch: Partial<Settings>) => void
   onStart: (plan: ReadingPlan) => void
   onClose: () => void
 }) {
@@ -59,6 +64,12 @@ export default function SessionSetup({
           ))}
         </select>
       </label>
+      {book.pages.some((page) => page.text.trim()) && (
+        <ReadingDirection
+          value={settings.writingMode}
+          onChange={(writingMode) => onSettings({ writingMode })}
+        />
+      )}
       <div className="field-label">
         Your goal
         <div className="goal-grid">

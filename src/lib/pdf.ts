@@ -18,8 +18,14 @@ export async function openPdf(data: Uint8Array) {
 // PDF content streams are drawing commands, not necessarily reading order.
 // Group vertical glyphs by column before reading each column from top to bottom.
 export function pdfText(items: TextItem[], styles: Record<string, TextStyle>): string {
+  // Some Japanese CMaps return vertical presentation forms instead of ordinary
+  // punctuation. Let CSS orient those marks for the chosen reading direction.
+  // Limit normalization to those forms so full-width text and kanji stay intact.
+  const textFor = (item: TextItem) =>
+    item.str.replace(/[\uFE10-\uFE19\uFE30-\uFE48]/g, (character) => character.normalize('NFKC'))
   const vertical = items.filter((item) => item.dir === 'ttb' || styles[item.fontName]?.vertical)
-  if (!vertical.length) return items.map((item) => item.str + (item.hasEOL ? '\n' : '')).join('')
+  if (!vertical.length)
+    return items.map((item) => textFor(item) + (item.hasEOL ? '\n' : '')).join('')
   const sizes = vertical
     .map((item) => Math.hypot(item.transform[0], item.transform[1]))
     .sort((a, b) => a - b)
@@ -34,7 +40,7 @@ export function pdfText(items: TextItem[], styles: Record<string, TextStyle>): s
     .map((column) =>
       column.items
         .sort((a, b) => b.transform[5] - a.transform[5])
-        .map((item) => item.str)
+        .map(textFor)
         .join(''),
     )
     .join('\n')

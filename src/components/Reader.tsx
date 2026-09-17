@@ -13,13 +13,14 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Book, Selection, Settings as Preferences } from '../types'
 import { sentenceFor } from '../lib/dictionary'
 import { Brand, formatTime, Modal } from './UI'
 import Settings from './Settings'
 import type { ReadingPlan } from './SessionSetup'
 import IllustratedPage from './IllustratedPage'
+import ReadingDirection from './ReadingDirection'
 
 export type ReadingResult = { pages: number[]; seconds: number; startedAt: string; quiz: boolean }
 
@@ -41,7 +42,11 @@ export default function Reader({
   onFinish: (result: ReadingResult) => void
 }) {
   const [page, setPage] = useState(plan.start)
-  const [running, setRunning] = useState(!book.illustrated && !book.pages[plan.start].image)
+  const [running, setRunning] = useState(
+    !!book.pages[plan.start].text.trim() &&
+      !book.pages[plan.start].image &&
+      book.readingView !== 'original',
+  )
   const [seconds, setSeconds] = useState(0)
   const [progress, setProgress] = useState(0)
   const [goalReached, setGoalReached] = useState(false)
@@ -63,17 +68,20 @@ export default function Reader({
     !!content.image || (!!book.pdfSource && (!hasText || book.readingView === 'original'))
   const vertical = settings.writingMode === 'vertical-rl' && !original
   const rightToLeft = original || vertical
-  const canPace = !original && !!content.text
+  const canPace = !original && hasText
   const canQuiz = hasText || [...visited.current].some((index) => book.pages[index].text.trim())
 
-  useEffect(() => {
-    visited.current.add(page)
+  useLayoutEffect(() => {
     pageProgress.current = 0
     setProgress(0)
     setSelection(null)
     setGoalReached(false)
     scrollRef.current?.scrollTo({ top: 0, left: 0 })
     textScrollRef.current?.scrollTo({ top: 0, left: 0 })
+  }, [page])
+
+  useEffect(() => {
+    visited.current.add(page)
     onUpdate({
       position: page,
       openedAt: new Date().toISOString(),
@@ -83,8 +91,31 @@ export default function Reader({
 
   useEffect(() => {
     if (!canPace) setRunning(false)
-    textScrollRef.current?.scrollTo({ top: 0, left: 0 })
+    setSelection(null)
+    window.getSelection()?.removeAllRanges()
+  }, [canPace, vertical, page])
+
+  // Keep the same reading position when the direction, font size, or screen changes.
+  const positionText = useCallback(() => {
+    const viewport = textScrollRef.current
+    if (!viewport || !canPace) return
+    viewport.scrollTo({
+      left: vertical
+        ? -Math.max(0, viewport.scrollWidth - viewport.clientWidth) * pageProgress.current
+        : 0,
+      top: vertical
+        ? 0
+        : Math.max(0, viewport.scrollHeight - viewport.clientHeight) * pageProgress.current,
+    })
   }, [canPace, vertical])
+
+  useLayoutEffect(() => {
+    positionText()
+    const observer = new ResizeObserver(positionText)
+    if (textScrollRef.current) observer.observe(textScrollRef.current)
+    if (textRef.current) observer.observe(textRef.current)
+    return () => observer.disconnect()
+  }, [positionText, page, settings.fontSize])
 
   useEffect(() => {
     const viewport = textScrollRef.current
@@ -132,13 +163,7 @@ export default function Reader({
         pageProgress.current + (delta * settings.speed) / (count * 60000),
       )
       setProgress(pageProgress.current)
-      const container = vertical ? textScrollRef.current : scrollRef.current
-      if (container && vertical)
-        container.scrollLeft =
-          -Math.max(0, container.scrollWidth - container.clientWidth) * pageProgress.current
-      else if (container)
-        container.scrollTop =
-          Math.max(0, container.scrollHeight - container.clientHeight) * pageProgress.current
+      positionText()
       if (pageProgress.current >= 1) {
         if (
           (!freeReading && plan.end !== null && page >= plan.end) ||
@@ -158,7 +183,7 @@ export default function Reader({
     freeReading,
     plan.end,
     book.pages.length,
-    vertical,
+    positionText,
     canPace,
   ])
 
@@ -295,25 +320,8 @@ export default function Reader({
             : `Goal: ${plan.end - plan.start + 1} pages`}
         </span>
       </div>
-      <div
-        className="reader-scroll"
-        ref={scrollRef}
-        onWheel={() => setRunning(false)}
-        onTouchStart={() => setRunning(false)}
-        onPointerDown={(event) => {
-          if (event.target === event.currentTarget) setRunning(false)
-        }}
-      >
-        <div className={`reading-page ${vertical ? 'vertical-page' : ''}`}>
-          <div className="eyebrow reader-chapter" lang="ja">
-            {content.chapter}
-          </div>
-          {book.format === 'pdf' && !book.pdfSource && (
-            <p className="small muted page-note">
-              Reimport this PDF to use original pages and improved vertical text order. This earlier
-              import saved text only.
-            </p>
-          )}
+      {(hasText || book.pdfSource) && (
+        <div className="reader-toolbar">
           {book.pdfSource && (
             <div className="reader-view-toggle" role="group" aria-label="Page view">
               <button
@@ -339,6 +347,40 @@ export default function Reader({
               </button>
             </div>
           )}
+          {hasText && (
+            <ReadingDirection
+              compact
+              value={settings.writingMode}
+              onChange={(writingMode) => {
+                setRunning(false)
+                onSettings({ writingMode })
+                if (book.pdfSource) onUpdate({ readingView: 'text' })
+              }}
+            />
+          )}
+        </div>
+      )}
+      <div
+        className="reader-scroll"
+        ref={scrollRef}
+        onWheel={() => setRunning(false)}
+        onTouchStart={() => setRunning(false)}
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) setRunning(false)
+        }}
+      >
+        <div
+          className={`reading-page ${original ? '' : 'text-page'} ${vertical ? 'vertical-page' : ''}`}
+        >
+          <div className="eyebrow reader-chapter" lang="ja">
+            {content.chapter}
+          </div>
+          {book.format === 'pdf' && !book.pdfSource && (
+            <p className="small muted page-note">
+              Reimport this PDF to use original pages and improved vertical text order. This earlier
+              import saved text only.
+            </p>
+          )}
           {!hasText && (
             <p className="page-note" role="note">
               This page has no selectable text. You can read the original image, but cannot select
@@ -349,9 +391,29 @@ export default function Reader({
           {hasText && (
             <div
               ref={textScrollRef}
-              className={`text-viewport ${vertical ? 'vertical' : ''}`}
-              tabIndex={vertical ? 0 : undefined}
-              aria-label={vertical ? 'Vertical Japanese text, scroll left to continue' : undefined}
+              className={`text-viewport ${vertical ? 'vertical' : 'horizontal'}`}
+              tabIndex={canPace ? 0 : undefined}
+              onPointerDown={(event) => {
+                if (event.target === event.currentTarget) setRunning(false)
+              }}
+              aria-label={
+                vertical
+                  ? 'Japanese text, scroll left to continue'
+                  : 'Japanese text, scroll down to continue'
+              }
+              onScroll={(event) => {
+                if (running || !canPace) return
+                const viewport = event.currentTarget
+                const distance = vertical
+                  ? viewport.scrollWidth - viewport.clientWidth
+                  : viewport.scrollHeight - viewport.clientHeight
+                if (distance <= 0) return
+                pageProgress.current = Math.min(
+                  1,
+                  Math.max(0, (vertical ? -viewport.scrollLeft : viewport.scrollTop) / distance),
+                )
+                setProgress(pageProgress.current)
+              }}
             >
               <article
                 ref={textRef}
@@ -364,21 +426,17 @@ export default function Reader({
                 onKeyUp={captureSelection}
                 onSelect={captureSelection}
               >
-                {content.text ? (
-                  boundaries
-                    .slice(0, -1)
-                    .map((start, i) =>
-                      highlights.some(
-                        (highlight) => highlight.start <= start && highlight.end > start,
-                      ) ? (
-                        <mark key={start}>{content.text.slice(start, boundaries[i + 1])}</mark>
-                      ) : (
-                        <span key={start}>{content.text.slice(start, boundaries[i + 1])}</span>
-                      ),
-                    )
-                ) : (
-                  <span className="muted">This page has no readable text.</span>
-                )}
+                {boundaries
+                  .slice(0, -1)
+                  .map((start, i) =>
+                    highlights.some(
+                      (highlight) => highlight.start <= start && highlight.end > start,
+                    ) ? (
+                      <mark key={start}>{content.text.slice(start, boundaries[i + 1])}</mark>
+                    ) : (
+                      <span key={start}>{content.text.slice(start, boundaries[i + 1])}</span>
+                    ),
+                  )}
               </article>
             </div>
           )}

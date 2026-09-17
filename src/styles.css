@@ -1373,30 +1373,39 @@ input[type='range'] {
 .text-viewport {
   min-width: 0;
 }
-.reading-page.vertical-page {
-  max-width: 1100px;
+.reading-page.text-page {
   padding-top: 18px;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
-.vertical-page .reader-chapter {
+.reading-page.vertical-page {
+  max-width: 1100px;
+}
+.text-page .reader-chapter {
   padding-bottom: 16px;
   margin-bottom: 20px;
 }
-.text-viewport.vertical {
+.text-page .text-viewport {
   flex: 1;
   height: 0;
   min-height: 180px;
   width: 100%;
   max-width: 100%;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent) var(--line);
+  scrollbar-width: thin;
+}
+.text-page .text-viewport.horizontal {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 12px;
+}
+.text-viewport.vertical {
   overflow-x: auto;
   overflow-y: hidden;
   writing-mode: vertical-rl;
   text-orientation: mixed;
-  overscroll-behavior: contain;
-  scrollbar-color: var(--accent) var(--line);
-  scrollbar-width: thin;
   padding-bottom: 12px;
 }
 .vertical .japanese-text {
@@ -1404,7 +1413,7 @@ input[type='range'] {
   min-width: 100%;
   width: max-content;
 }
-.vertical-page .page-end {
+.text-page .page-end {
   margin: 18px 0 12px;
 }
 .reader-rtl .reader-page-controls {
@@ -1420,11 +1429,54 @@ input[type='range'] {
 .reader-original .japanese-text {
   font-size: 20px;
 }
+.reader-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 25px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.reading-direction {
+  margin: 22px 0;
+  min-width: 0;
+}
+.reading-direction .field-label {
+  margin: 0;
+}
+.reading-direction select {
+  min-width: 0;
+  max-width: 100%;
+}
+.reading-direction .field-label + p {
+  margin: 8px 0 0;
+}
+.reading-direction.compact {
+  margin: 0;
+}
+.reading-direction.compact .field-label {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+.reading-direction.compact select {
+  width: auto;
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.reading-direction.compact p {
+  font-size: 11px;
+}
 .reader-view-toggle {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 15px;
   align-items: center;
 }
 .reader-view-toggle [aria-pressed='true'] {

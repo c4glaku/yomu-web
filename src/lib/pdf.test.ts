@@ -37,3 +37,9 @@ it('recognizes vertical font metadata and preserves horizontal extraction', () =
     pdfText([{ ...item('First', 0, 0, 'ltr'), hasEOL: true }, item('Second', 0, 20, 'ltr')], {}),
   ).toBe('First\nSecond')
 })
+
+it('reflows vertical punctuation without changing full-width text or compatibility kanji', () => {
+  for (const direction of ['ttb', 'ltr']) {
+    expect(pdfText([item('︒﹁本﹂Ａ①神', 10, 10, direction)], {})).toBe('。「本」Ａ①神')
+  }
+})

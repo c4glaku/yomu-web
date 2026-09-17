@@ -9,7 +9,7 @@ No account, API key, or application backend required. A Japanese starter story a
 ## Features
 
 - **Personal library:** import PDF, EPUB, TXT, CBZ/ZIP, and PNG/JPEG/WebP pages; search, sort, highlight, and resume reading. Multiple loose images become one naturally ordered book.
-- **Vertical and paced reading:** read top to bottom, right to left, or switch to horizontal text; set goals, adjust pacing, and use automatic scrolling and page turns.
+- **Paced reading:** choose vertical scrolling with horizontal text, or horizontal scrolling through vertical Japanese columns. Set direction before or during reading; goals, speed, automatic scrolling, and page turns work in both modes.
 - **Scanned pages and comics:** retain artwork from PDFs, image EPUBs, comics, and loose images. Pages without selectable text use manual page turns and cannot be highlighted or used for quizzes. OCR is not included.
 - **Japanese lookup:** select words for readings, English definitions, kanji details, and pronunciation; save vocabulary with its sentence, book, and page.
 - **Practice and progress:** quiz vocabulary from visited pages or saved words, and track sessions, pages, and active reading time.

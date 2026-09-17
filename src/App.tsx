@@ -559,6 +559,8 @@ export default function App() {
       {setupBook && (
         <SessionSetup
           book={setupBook}
+          settings={state.settings}
+          onSettings={updateSettings}
           onClose={() => setSetupBook(null)}
           onStart={(plan) => {
             lookedUp.current = []

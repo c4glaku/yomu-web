@@ -79,7 +79,10 @@ test('vertical columns, scrolling, navigation, and horizontal preference work', 
   await page.keyboard.press('ArrowRight')
   await expect(page.getByLabel('Go to page')).toHaveValue('0')
   await page.getByRole('button', { name: 'Reader settings' }).click()
-  await page.getByLabel('Text direction', { exact: true }).selectOption('horizontal-tb')
+  await page
+    .getByRole('dialog')
+    .getByLabel('Scroll direction', { exact: true })
+    .selectOption('horizontal-tb')
   await page.getByRole('button', { name: 'Close dialog' }).click()
   await expect(page.locator('.japanese-text')).toHaveCSS('writing-mode', 'horizontal-tb')
   await page.locator('.japanese-text').click()
